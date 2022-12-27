@@ -3,8 +3,8 @@ provider "aws" {
   version = ">= 3.0"
 }
 
-provider "kubernetes" {
-  host                   = module.eks_blueprints.eks_cluster_endpoint
+provider "kubernetes" { #data lookup for manually created cluster for all 3 variables
+  host                   = module.eks_blueprints.eks_cluster_endpoint 
   cluster_ca_certificate = base64decode(module.eks_blueprints.eks_cluster_certificate_authority_data)
   token                  = data.aws_eks_cluster_auth.this.token
 
@@ -16,7 +16,7 @@ provider "kubernetes" {
   }
 }
 
-provider "helm" {
+provider "helm" { # same as kubernetes
   kubernetes {
     host                   = module.eks_blueprints.eks_cluster_endpoint
     cluster_ca_certificate = base64decode(module.eks_blueprints.eks_cluster_certificate_authority_data)
@@ -69,13 +69,16 @@ locals {
 # EKS Blueprints
 #---------------------------------------------------------------
 module "eks_blueprints" {
+  count = 0
+  
   source = "../../.."
-
+  
   cluster_name    = local.name
-  cluster_version = "1.23"
+  cluster_version = "1.22"
+  cluster_endpoint_public_access  = false
 
-  vpc_id             = module.vpc.vpc_id
-  private_subnet_ids = module.vpc.private_subnets
+  vpc_id             = var.shared_vpc_id #module.vpc.vpc_id
+  private_subnet_ids = var.private_subnets
 
   #----------------------------------------------------------------------------------------------------------#
   # Security groups used in this module created by the upstream modules terraform-aws-eks (https://github.com/terraform-aws-modules/terraform-aws-eks).
@@ -121,7 +124,7 @@ module "eks_blueprints" {
       node_group_name = "managed-ondemand"
       instance_types  = ["m5.8xlarge"]
       min_size        = 3
-      subnet_ids      = module.vpc.private_subnets
+      subnet_ids      = var.private_subnets
     }
   }
 
@@ -134,6 +137,7 @@ module "eks_blueprints" {
 module "eks_blueprints_kubernetes_addons" {
   source = "../../../modules/kubernetes-addons"
 
+  #figure out following variables with data lookup
   eks_cluster_id       = module.eks_blueprints.eks_cluster_id
   eks_cluster_endpoint = module.eks_blueprints.eks_cluster_endpoint
   eks_oidc_provider    = module.eks_blueprints.oidc_provider
@@ -323,6 +327,7 @@ resource "grafana_dashboard" "ray" {
 # Supporting Resources
 #---------------------------------------------------------------
 module "vpc" {
+  count = var.shared_vpc_id == "" ? 0 : 1
   source  = "terraform-aws-modules/vpc/aws"
   version = "~> 3.0"
 
