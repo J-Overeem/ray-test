@@ -3,31 +3,47 @@ provider "aws" {
   version = ">= 3.0"
 }
 
-provider "kubernetes" { #data lookup for manually created cluster for all 3 variables
-  host                   = module.eks_blueprints.eks_cluster_endpoint 
-  cluster_ca_certificate = base64decode(module.eks_blueprints.eks_cluster_certificate_authority_data)
-  token                  = data.aws_eks_cluster_auth.this.token
-
-  exec {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "aws"
-    # This requires the awscli to be installed locally where Terraform is executed
-    args = ["eks", "get-token", "--cluster-name", module.eks_blueprints.eks_cluster_id]
-  }
+data "aws_eks_cluster" "cluster" {
+  name = "dataplatform-ray_ml" #var.config["eks_ml_cluster_name"]
 }
+
+data "aws_eks_cluster_auth" "cluster_auth" {
+  name = data.aws_eks_cluster.cluster.id
+}
+
+provider "kubernetes" {
+  host                   = data.aws_eks_cluster.cluster.endpoint
+  cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority.0.data)
+  token                  = data.aws_eks_cluster_auth.cluster_auth.token
+}
+
+
+#provider "kubernetes" { #data lookup for manually created cluster for all 3 variables
+  #host                   = var.eks_cluster_endpoint #module.eks_blueprints.eks_cluster_endpoint 
+  #cluster_ca_certificate = base64decode(var.eks_cluster_certificate_authority)
+  #token                  = var.eks_cluster_id # data.aws_eks_cluster_auth.this.token
+
+  #exec {
+  #  api_version = "client.authentication.k8s.io/v1beta1"
+  #  command     = "aws"
+  #  # This requires the awscli to be installed locally where Terraform is executed
+  #  args = ["eks", "get-token", "--cluster-name", module.eks_blueprints.eks_cluster_id]
+  #}
+#}
 
 provider "helm" { # same as kubernetes
   kubernetes {
-    host                   = module.eks_blueprints.eks_cluster_endpoint
-    cluster_ca_certificate = base64decode(module.eks_blueprints.eks_cluster_certificate_authority_data)
-    token                  = data.aws_eks_cluster_auth.this.token
+   host                   = data.aws_eks_cluster.cluster.endpoint
+  cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority.0.data)
+  token                  = data.aws_eks_cluster_auth.cluster_auth.token
 
-    exec {
-      api_version = "client.authentication.k8s.io/v1beta1"
-      command     = "aws"
-      # This requires the awscli to be installed locally where Terraform is executed
-      args = ["eks", "get-token", "--cluster-name", module.eks_blueprints.eks_cluster_id]
-    }
+
+  #exec {
+  #  api_version = "client.authentication.k8s.io/v1beta1"
+  #  command     = "aws"
+  #  # This requires the awscli to be installed locally where Terraform is executed
+  #  args = ["eks", "get-token", "--cluster-name", module.eks_blueprints.eks_cluster_id]
+  #}
   }
 }
 
@@ -46,9 +62,9 @@ data "aws_acm_certificate" "issued" {
   statuses = ["ISSUED"]
 }
 
-data "aws_eks_cluster_auth" "this" {
-  name = module.eks_blueprints.eks_cluster_id
-}
+#data "aws_eks_cluster_auth" "this" {
+#  name = var.eks_cluster_id#module.eks_blueprints.eks_cluster_id
+#}
 
 locals {
   name      = basename(path.cwd)
@@ -138,10 +154,10 @@ module "eks_blueprints_kubernetes_addons" {
   source = "../../../modules/kubernetes-addons"
 
   #figure out following variables with data lookup
-  eks_cluster_id       = module.eks_blueprints.eks_cluster_id
-  eks_cluster_endpoint = module.eks_blueprints.eks_cluster_endpoint
-  eks_oidc_provider    = module.eks_blueprints.oidc_provider
-  eks_cluster_version  = module.eks_blueprints.eks_cluster_version
+  eks_cluster_id       = data.aws_eks_cluster.cluster.id #module.eks_blueprints.eks_cluster_id
+  eks_cluster_endpoint = data.aws_eks_cluster.cluster.endpoint # module.eks_blueprints.eks_cluster_endpoint
+  eks_oidc_provider    = var.oidc_provider_url #module.eks_blueprints.oidc_provider
+  eks_cluster_version  = 1.22 #module.eks_blueprints.eks_cluster_version
   eks_cluster_domain   = var.eks_cluster_domain
 
   # Add-Ons
@@ -247,7 +263,8 @@ data "aws_iam_policy_document" "irsa_policy" {
 
 resource "aws_iam_policy" "irsa_policy" {
   description = "IAM Policy for IRSA"
-  name_prefix = substr("${module.eks_blueprints.eks_cluster_id}-${local.namespace}-access", 0, 127)
+  name_prefix = substr("${var.eks_cluster_id}-${local.namespace}-access", 0, 127)
+  #name_prefix = substr("${module.eks_blueprints.eks_cluster_id}-${local.namespace}-access", 0, 127)
   policy      = data.aws_iam_policy_document.irsa_policy.json
 }
 
@@ -256,8 +273,8 @@ module "cluster_irsa" {
   kubernetes_namespace       = local.namespace
   kubernetes_service_account = "${local.namespace}-sa"
   irsa_iam_policies          = [aws_iam_policy.irsa_policy.arn]
-  eks_cluster_id             = module.eks_blueprints.eks_cluster_id
-  eks_oidc_provider_arn      = module.eks_blueprints.eks_oidc_provider_arn
+  eks_cluster_id             = data.aws_eks_cluster.cluster.id #module.eks_blueprints.eks_cluster_id
+  eks_oidc_provider_arn      = var.oidc_provider_arn #module.eks_blueprints.eks_oidc_provider_arn
 
   depends_on = [module.s3_bucket]
 }
